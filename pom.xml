@@ -101,6 +101,7 @@
     <module>parquet-benchmarks</module>
     <module>parquet-cascading</module>
     <module>parquet-column</module>
+    <module>parquet-arrow</module>
     <module>parquet-common</module>
     <module>parquet-encoding</module>
     <!-- <module>parquet-generator</module> -->
