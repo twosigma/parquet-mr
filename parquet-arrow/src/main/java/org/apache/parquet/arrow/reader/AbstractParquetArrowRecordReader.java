@@ -87,18 +87,19 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
   protected Schema requestedArrowSchema;
 
   /**
-   * The total number of rows this RecordReader will eventually read. The sum of the
-   * rows of all the row groups in the `file`.
+   * The total number of rows this reader will eventually read, i.e. the sum of the
+   * rows of all the row groups in the file.
    */
+  // TODO: may change to int?
   protected long totalRowCount;
 
   protected ParquetFileReader reader;
 
   @Override
   public void initialize(InputSplit inputSplit, TaskAttemptContext taskAttemptContext)
-    throws IOException, InterruptedException {
+      throws IOException, InterruptedException {
     Configuration configuration = taskAttemptContext.getConfiguration();
-    ParquetInputSplit split = (ParquetInputSplit)inputSplit;
+    ParquetInputSplit split = (ParquetInputSplit) inputSplit;
     this.file = split.getPath();
     long[] rowGroupOffsets = split.getRowGroupOffsets();
 
@@ -133,11 +134,11 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
         }
         // This should never happen but we provide a good error message in case there's a bug.
         throw new IllegalStateException(
-          "All the offsets listed in the split should be found in the file."
-            + " expected: " + Arrays.toString(rowGroupOffsets)
-            + " found: " + blocks
-            + " out of: " + Arrays.toString(foundRowGroupOffsets)
-            + " in range " + split.getStart() + ", " + split.getEnd());
+            "All the offsets listed in the split should be found in the file."
+                + " expected: " + Arrays.toString(rowGroupOffsets)
+                + " found: " + blocks
+                + " out of: " + Arrays.toString(foundRowGroupOffsets)
+                + " in range " + split.getStart() + ", " + split.getEnd());
       }
     }
     this.fileSchema = footer.getFileMetaData().getSchema();
@@ -152,11 +153,11 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
     configuration.set(ReadSupport.PARQUET_READ_SCHEMA, fileSchema.toString());
 
     ReadSupport.ReadContext readContext = readSupport.init(new InitContext(
-      taskAttemptContext.getConfiguration(), toSetMultiMap(fileMetadata), fileSchema));
+        taskAttemptContext.getConfiguration(), toSetMultiMap(fileMetadata), fileSchema));
     this.requestedSchema = readContext.getRequestedSchema();
 
     this.reader = new ParquetFileReader(
-      configuration, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
+        configuration, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
     for (BlockMetaData block : blocks) {
       this.totalRowCount += block.getRowCount();
     }
@@ -165,12 +166,12 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
   /**
    * Initializes the reader to read the file at `path` with `columns` projected. If columns is
    * null, all the columns are projected.
-   *
+   * <p>
    * This is exposed for testing to be able to create this reader without the rest of the Hadoop
    * split machinery. It is not intended for general use and those not support all the
    * configurations.
    */
-  protected void initialize(String path, List<String> columns) throws IOException {
+  protected void initialize(final String path, final List<String> columns) throws IOException {
     Configuration config = new Configuration();
 
     this.file = new Path(path);
@@ -182,25 +183,24 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
 
     if (columns == null) {
       this.requestedSchema = fileSchema;
+    } else if (columns.isEmpty()) {
+      this.requestedSchema = SchemaConverter.EMPTY_MESSAGE;
     } else {
-      if (columns.size() > 0) {
-        Types.MessageTypeBuilder builder = Types.buildMessage();
-        for (String s: columns) {
-          if (!fileSchema.containsField(s)) {
-            throw new IOException("Can only project existing columns. Unknown field: " + s +
+      final Types.MessageTypeBuilder builder = Types.buildMessage();
+      for (final String c : columns) {
+        if (!fileSchema.containsField(c)) {
+          throw new IOException("Can only project existing columns. Unknown column: " + c +
               " File schema:\n" + fileSchema);
-          }
-          builder.addFields(fileSchema.getType(s));
         }
-        this.requestedSchema = builder.named(SchemaConverter.ARROW_PARQUET_SCHEMA_NAME);
-      } else {
-        this.requestedSchema = SchemaConverter.EMPTY_MESSAGE;
+        builder.addFields(fileSchema.getType(c));
       }
+      this.requestedSchema = builder.named(SchemaConverter.ARROW_PARQUET_SCHEMA_NAME);
     }
+
     this.requestedArrowSchema = new SchemaConverter().fromParquet(requestedSchema).getArrowSchema();
     this.reader = new ParquetFileReader(
-      config, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
-    for (BlockMetaData block : blocks) {
+        config, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
+    for (final BlockMetaData block : blocks) {
       this.totalRowCount += block.getRowCount();
     }
   }
@@ -253,7 +253,9 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
 
   protected static final class NullIntIterator extends IntIterator {
     @Override
-    int nextInt() { return 0; }
+    int nextInt() {
+      return 0;
+    }
   }
 
   /**
@@ -261,13 +263,13 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
    * the levels are not needed.
    */
   protected static IntIterator createRLEIterator(
-    int maxLevel, BytesInput bytes, ColumnDescriptor descriptor) throws IOException {
+      int maxLevel, BytesInput bytes, ColumnDescriptor descriptor) throws IOException {
     try {
       if (maxLevel == 0) return new NullIntIterator();
       return new RLEIntIterator(
-        new RunLengthBitPackingHybridDecoder(
-          BytesUtils.getWidthFromMaxInt(maxLevel),
-          new ByteArrayInputStream(bytes.toByteArray())));
+          new RunLengthBitPackingHybridDecoder(
+              BytesUtils.getWidthFromMaxInt(maxLevel),
+              new ByteArrayInputStream(bytes.toByteArray())));
     } catch (IOException e) {
       throw new IOException("could not read levels in page for col " + descriptor, e);
     }

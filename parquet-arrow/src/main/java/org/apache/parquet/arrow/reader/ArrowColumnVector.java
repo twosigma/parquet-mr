@@ -120,10 +120,7 @@ public final class ArrowColumnVector extends WritableColumnVector {
     // TODO: may be use Arrow Type instead of Parquet type for the ColumnVector.
     super(
         10,
-        new SchemaConverter()
-            .fromArrow(new Schema(Lists.newArrayList(vector.getField())))
-            .getParquetSchema()
-            .getType(0));
+          vector.getField().getType());
 
     if (vector instanceof BitVector) {
       accessor = new BooleanAccessor((BitVector) vector);

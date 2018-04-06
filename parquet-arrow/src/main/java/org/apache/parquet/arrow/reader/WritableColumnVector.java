@@ -18,6 +18,7 @@
  */
 package org.apache.parquet.arrow.reader;
 
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.Dictionary;
 import org.apache.parquet.schema.GroupType;
@@ -29,18 +30,18 @@ import java.math.BigInteger;
 import java.nio.ByteOrder;
 
 /**
- * This class adds write APIs to ColumnVector. It supports all the types and contains put APIs as
- * well as their batched versions. The batched versions are preferable whenever possible.
+ * This class adds write APIs to {@link ColumnVector}. It supports all the types and contains put
+ * APIs as well as their batched versions. The batched versions are preferable whenever possible.
  *
  * <p>Capacity: The data stored is dense but the arrays are not fixed capacity. It is the
  * responsibility of the caller to call reserve() to ensure there is enough room before adding
  * elements. This means that the put() APIs do not check as in common cases (i.e. flat schemas), the
  * lengths are known up front.
  *
- * <p>A WritableColumnVector should be considered immutable once originally created. In other words,
- * it is not valid to call put APIs after reads until reset() is called.
+ * <p>A {@link WritableColumnVector} should be considered immutable once originally created. In
+ * other words, it is not valid to call put APIs after reads until reset() is called.
  *
- * <p>WritableColumnVector are intended to be reused.
+ * <p>{@link WritableColumnVector}s are intended to be reused.
  */
 public abstract class WritableColumnVector extends ColumnVector {
 
@@ -114,9 +115,9 @@ public abstract class WritableColumnVector extends ColumnVector {
   }
 
   /**
-   * Returns the dictionary Id for rowId.
-   *
-   * <p>This should only be called when this `WritableColumnVector` represents dictionaryIds.
+   * @return the dictionary Id for rowId.
+   * @apiNote This should only be called when this {@link WritableColumnVector} represents
+   *     dictionaryIds.
    */
   public abstract int getDictId(int rowId);
 
@@ -130,12 +131,12 @@ public abstract class WritableColumnVector extends ColumnVector {
   /** Reusable column for ids of dictionary. */
   protected WritableColumnVector dictionaryIds;
 
-  /** Returns true if this column has a dictionary. */
+  /** @return true if this column has a dictionary. */
   public boolean hasDictionary() {
     return this.dictionary != null;
   }
 
-  /** Returns the underlying integer column for ids of dictionary. */
+  /** @return the underlying integer column for ids of dictionary. */
   public WritableColumnVector getDictionaryIds() {
     return dictionaryIds;
   }
@@ -333,19 +334,19 @@ public abstract class WritableColumnVector extends ColumnVector {
   protected abstract WritableColumnVector reserveNewColumn(int capacity, Type type);
 
   protected boolean isArray() {
-    return type instanceof GroupType && type.getRepetition() == Type.Repetition.REPEATED;
+    throw new UnsupportedOperationException();
   }
 
   /**
    * Sets up the common state and also handles creating the child columns if this is a nested type.
    */
-  protected WritableColumnVector(int capacity, Type type) {
+  protected WritableColumnVector(int capacity, ArrowType type) {
     super(type);
     this.capacity = capacity;
 
     // TODO: will handle nested struct later
     this.childColumns = null;
-    if (this.type.isPrimitive()) {
+    if (this.type instanceof ArrowType.PrimitiveType) {
       this.childColumns = null;
     } else {
       throw new UnsupportedOperationException("Does not support non primitive type.");

@@ -18,49 +18,43 @@
  */
 package org.apache.parquet.arrow.reader;
 
-import org.apache.parquet.schema.Type;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 
-// XXX: Good
+// TODO: this class is in a good shape.
 public abstract class ColumnVector implements AutoCloseable {
 
-  /**
-   * Returns the Arrow type of this column vector.
-   */
-  public final Type dataType() { return type; }
+  /** @return the Arrow type of this column vector. */
+  public final ArrowType dataType() {
+    return type;
+  }
 
   /**
    * Cleans up memory for this column vector. The column vector is not usable after this.
    *
-   * This overwrites `AutoCloseable.close` to remove the `throws` clause, as column vector is
+   * <p>This overwrites `AutoCloseable.close` to remove the `throws` clause, as column vector is
    * in-memory and we don't expect any exception to happen during closing.
    */
   @Override
   public abstract void close();
 
-  /**
-   * Returns true if this column vector contains any null values.
-   */
+  /** @return true if this column vector contains any null values. */
   public abstract boolean hasNull();
 
-  /**
-   * Returns the number of nulls in this column vector.
-   */
+  /** @return the number of nulls in this column vector. */
   public abstract int numNulls();
 
-  /**
-   * Returns whether the value at rowId is NULL.
-   */
+  /** @return whether the value at rowId is NULL. */
   public abstract boolean isNullAt(int rowId);
 
   /**
-   * Returns the boolean type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the boolean type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract boolean getBoolean(int rowId);
 
   /**
-   * Gets boolean type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return boolean type values from [rowId, rowId + count). The return values for the null slots
+   *     are undefined and can be anything.
    */
   public boolean[] getBooleans(int rowId, int count) {
     boolean[] res = new boolean[count];
@@ -71,14 +65,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the byte type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the byte type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract byte getByte(int rowId);
 
   /**
-   * Gets byte type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return the byte type values from [rowId, rowId + count). The return values for the null slots
+   *     are undefined and can be anything.
    */
   public byte[] getBytes(int rowId, int count) {
     byte[] res = new byte[count];
@@ -89,14 +83,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the short type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the short type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract short getShort(int rowId);
 
   /**
-   * Gets short type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return short type values from [rowId, rowId + count). The return values for the null slots are
+   *     undefined and can be anything.
    */
   public short[] getShorts(int rowId, int count) {
     short[] res = new short[count];
@@ -107,14 +101,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the int type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the int type value for rowId. The return value is undefined and can be anything, if the
+   *     slot for rowId is null.
    */
   public abstract int getInt(int rowId);
 
   /**
-   * Gets int type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return int type values from [rowId, rowId + count). The return values for the null slots are
+   *     undefined and can be anything.
    */
   public int[] getInts(int rowId, int count) {
     int[] res = new int[count];
@@ -125,14 +119,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the long type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the long type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract long getLong(int rowId);
 
   /**
-   * Gets long type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return long type values from [rowId, rowId + count). The return values for the null slots are
+   *     undefined and can be anything.
    */
   public long[] getLongs(int rowId, int count) {
     long[] res = new long[count];
@@ -143,14 +137,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the float type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the float type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract float getFloat(int rowId);
 
   /**
-   * Gets float type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return float type values from [rowId, rowId + count). The return values for the null slots are
+   *     undefined and can be anything.
    */
   public float[] getFloats(int rowId, int count) {
     float[] res = new float[count];
@@ -161,14 +155,14 @@ public abstract class ColumnVector implements AutoCloseable {
   }
 
   /**
-   * Returns the double type value for rowId. The return value is undefined and can be anything,
-   * if the slot for rowId is null.
+   * @return the double type value for rowId. The return value is undefined and can be anything, if
+   *     the slot for rowId is null.
    */
   public abstract double getDouble(int rowId);
 
   /**
-   * Gets double type values from [rowId, rowId + count). The return values for the null slots
-   * are undefined and can be anything.
+   * @return the double type values from [rowId, rowId + count). The return values for the null
+   *     slots are undefined and can be anything.
    */
   public double[] getDoubles(int rowId, int count) {
     double[] res = new double[count];
@@ -178,21 +172,14 @@ public abstract class ColumnVector implements AutoCloseable {
     return res;
   }
 
-  /**
-   * @return child [[ColumnVector]] at the given ordinal.
-   */
+  /** @return child [[ColumnVector]] at the given ordinal. */
   protected abstract ColumnVector getChild(int ordinal);
 
-  /**
-   * Data type for this column.
-   */
-  protected Type type;
+  /** Arrow data type for this column. */
+  protected ArrowType type;
 
-  /**
-   * Sets up the data type of this column vector.
-   */
-  protected ColumnVector(Type type) {
+  /** Sets the Arrow data type of this column vector. */
+  protected ColumnVector(ArrowType type) {
     this.type = type;
   }
 }
-

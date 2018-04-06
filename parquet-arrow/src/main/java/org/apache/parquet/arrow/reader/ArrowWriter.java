@@ -20,14 +20,13 @@
 package org.apache.parquet.arrow.reader;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
 
 import java.util.List;
 
-public class ArrowWriter {
+public class ArrowWriter implements AutoCloseable {
 
   private VectorSchemaRoot root;
 
@@ -38,27 +37,35 @@ public class ArrowWriter {
   private int count;
 
   public ArrowWriter(Schema schema, BufferAllocator allocator) {
-    this.root = VectorSchemaRoot.create(schema, allocator);
-    List<FieldVector> fieldVectors = root.getFieldVectors();
+    this.schema = schema;
+    this.allocator = allocator;
+    this.root = VectorSchemaRoot.create(this.schema, this.allocator);
   }
 
   public VectorSchemaRoot getRoot() {
     return this.root;
   }
 
+  public Schema getSchema() {
+    return this.schema;
+  }
+
   public BufferAllocator getAllocator() {
     return this.allocator;
   }
 
-  public void setCount(int count) {
+  public void setCount(final int count) {
     this.count = count;
+    root.setRowCount(this.count);
   }
 
   public int getCount() {
     return this.count;
   }
 
+  @Override
   public void close() {
-    // TODO: close
+    root.close();
+    allocator.close();
   }
 }

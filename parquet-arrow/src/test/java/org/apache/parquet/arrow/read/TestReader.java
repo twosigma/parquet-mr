@@ -21,6 +21,7 @@ package org.apache.parquet.arrow.read;
 import com.google.common.collect.Lists;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.complex.NullableMapVector;
@@ -50,7 +51,7 @@ public class TestReader {
     Configuration config = new Configuration();
 
     FileSystem fs = FileSystem.get(config);
-    Path path = new Path("/Users/wenbozhao/scratch/data");
+    Path path = new Path("/Users/wenbozhao/scratch/data3");
     List<Footer> footers = Lists.newArrayList();
 
     for (FileStatus s : fs.listStatus(path)) {
@@ -109,15 +110,21 @@ public class TestReader {
           VectorizedParquetArrowRecordReader reader =
               new VectorizedParquetArrowRecordReader(null, 10);
           try {
-            reader.initialize(f.getFile().toString(), Lists.asList("_1", new String[] {"_2"}));
+            reader.initialize(f.getFile().toString(), Lists.asList("_1", new String[]{"_2", "_3"}));
             reader.initBatch(schemaMapping);
-            reader.nextBatch();
+            while (reader.nextBatch()) {
+
+            }
 
             List<FieldVector> vectors = reader.getArrowWriter().getRoot().getFieldVectors();
-            vectors.forEach( v -> {
+            vectors.forEach(v -> {
               ArrowColumnVector v1 = new ArrowColumnVector(v);
-              for (int i = 0; i < reader.getArrowWriter().getCount(); ++i) {
-                System.out.println("Get " + v1.getInt(i));
+              for (int i = 0; i < reader.getArrowWriter().getRoot().getRowCount(); ++i) {
+                if (v instanceof BigIntVector) {
+                  System.out.println("Get " + v1.getLong(i));
+                } else {
+                  System.out.println("Get " + v1.getInt(i));
+                }
               }
             });
           } catch (Exception e) {
