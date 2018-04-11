@@ -22,6 +22,7 @@ package org.apache.parquet.arrow.reader;
 import java.io.IOException;
 import java.util.TimeZone;
 
+import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.parquet.bytes.BytesUtils;
 import org.apache.parquet.column.ColumnDescriptor;
@@ -59,10 +60,12 @@ public class VectorizedColumnReader {
   private AbstractParquetArrowRecordReader.IntIterator repetitionLevelColumn;
 
   private AbstractParquetArrowRecordReader.IntIterator definitionLevelColumn;
+
   private ValuesReader dataColumn;
 
   // Only set if vectorized decoding is true. This is used instead of the row by row decoding
   // with `definitionLevelColumn`.
+  // Note that this reader will be only applied to Definition.
   private VectorizedRleValuesReader defColumn;
 
   /** Total number of values in this column (in this row group). */
@@ -75,6 +78,7 @@ public class VectorizedColumnReader {
   private final ColumnDescriptor descriptor;
   private final OriginalType originalType;
   // The timezone conversion to apply to int96 timestamps. Null if no conversion.
+  // TODO: actually use TimeZone for reading as a TimeStamp type.
   private final TimeZone convertTz;
 
   private static final TimeZone UTC = DateTimeZone.UTC.toTimeZone();
@@ -109,14 +113,29 @@ public class VectorizedColumnReader {
     }
   }
 
+  /**
+   * Reading `total` number of values in batch and writing them into `column`.
+   *
+   * <p>Note that each call of this function will actually write values from [0, total) in `column`.
+   */
   void readBatch(int total, WritableColumnVector column) throws IOException {
-    int rowId = 0;
+    readBatch(total, column, 0);
+  }
+
+  /**
+   * Reading `total` number of values in batch and writing them into `column`.
+   *
+   * <p>Note that each call of this function will actually write values from [rowId, rowId + total)
+   * in `column`.
+   */
+  void readBatch(int total, WritableColumnVector column, int rowId) throws IOException {
     WritableColumnVector dictionaryIds = null;
     if (dictionary != null) {
       // We only maintain a single dictionary per row batch, so that it can be used to
       // decode all previous dictionary encoded pages if we ever encounter a non-dictionary encoded
       // page.
-      dictionaryIds = column.reserveDictionaryIds(total);
+      // dictionaryIds = column.reserveDictionaryIds(total);
+      throw new UnsupportedOperationException("Not fully support dictionary!");
     }
     while (total > 0) {
       // Compute the number of values we want to read in this page.
@@ -146,15 +165,13 @@ public class VectorizedColumnReader {
           // non-dictionary encoded values have already been added).
           column.setDictionary(dictionary);
         } else {
-          throw new RuntimeException("Not supported decode dict!");
-          // decodeDictionaryIds(rowId, num, column, dictionaryIds);
+          decodeDictionaryIds(rowId, num, column, dictionaryIds);
         }
       } else {
         if (column.hasDictionary() && rowId != 0) {
           // This batch already has dictionary encoded values but this new page is not. The batch
           // does not support a mix of dictionary and not so we will decode the dictionary.
-          throw new RuntimeException("Not supported decode dict");
-          // decodeDictionaryIds(0, rowId, column, column.getDictionaryIds());
+          decodeDictionaryIds(0, rowId, column, column.getDictionaryIds());
         }
         column.setDictionary(null);
         // Here, we dispatch how should interpret buffer reading from Parquet as different types.
@@ -198,7 +215,6 @@ public class VectorizedColumnReader {
     return convertTz != null && !convertTz.equals(UTC);
   }
 
-  /*
   private void decodeDictionaryIds(
     int rowId,
     int num,
@@ -206,311 +222,111 @@ public class VectorizedColumnReader {
     WritableColumnVector dictionaryIds) {
     switch (descriptor.getType()) {
       case INT32:
-        if (column.dataType() == DataTypes.IntegerType ||
-          DecimalType.is32BitDecimalType(column.dataType())) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              column.putInt(i, dictionary.decodeToInt(dictionaryIds.getDictId(i)));
-            }
-          }
-        } else if (column.dataType() == DataTypes.ByteType) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              column.putByte(i, (byte) dictionary.decodeToInt(dictionaryIds.getDictId(i)));
-            }
-          }
-        } else if (column.dataType() == DataTypes.ShortType) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              column.putShort(i, (short) dictionary.decodeToInt(dictionaryIds.getDictId(i)));
-            }
-          }
-        } else {
-          throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-        }
-        break;
-
-      case INT64:
-        if (column.dataType() == DataTypes.LongType ||
-          DecimalType.is64BitDecimalType(column.dataType()) ||
-          originalType == OriginalType.TIMESTAMP_MICROS) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              column.putLong(i, dictionary.decodeToLong(dictionaryIds.getDictId(i)));
-            }
-          }
-        } else if (originalType == OriginalType.TIMESTAMP_MILLIS) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              column.putLong(i,
-                DateTimeUtils.fromMillis(dictionary.decodeToLong(dictionaryIds.getDictId(i))));
-            }
-          }
-        } else {
-          throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-        }
-        break;
-
-      case FLOAT:
-        for (int i = rowId; i < rowId + num; ++i) {
-          if (!column.isNullAt(i)) {
-            column.putFloat(i, dictionary.decodeToFloat(dictionaryIds.getDictId(i)));
-          }
-        }
-        break;
-
-      case DOUBLE:
-        for (int i = rowId; i < rowId + num; ++i) {
-          if (!column.isNullAt(i)) {
-            column.putDouble(i, dictionary.decodeToDouble(dictionaryIds.getDictId(i)));
-          }
-        }
-        break;
-      case INT96:
-        if (column.dataType() == DataTypes.TimestampType) {
-          if (!shouldConvertTimestamps()) {
+        if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Int) {
+          final ArrowType.Int intType = (ArrowType.Int) column.dataType();
+          if (intType.getBitWidth() == 32 && intType.getIsSigned()) {
             for (int i = rowId; i < rowId + num; ++i) {
               if (!column.isNullAt(i)) {
-                Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-                column.putLong(i, ParquetRowConverter.binaryToSQLTimestamp(v));
+                column.putInt(i, dictionary.decodeToInt(dictionaryIds.getDictId(i)));
+              }
+            }
+
+          } else {
+            throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
+          }
+        } else {
+          throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
+        }
+        break;
+      case INT64:
+        if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Int) {
+          final ArrowType.Int intType = (ArrowType.Int) column.dataType();
+          if (intType.getBitWidth() == 64 && intType.getIsSigned()) {
+            for (int i = rowId; i < rowId + num; ++i) {
+              if (!column.isNullAt(i)) {
+                column.putLong(i, dictionary.decodeToLong(dictionaryIds.getDictId(i)));
               }
             }
           } else {
-            for (int i = rowId; i < rowId + num; ++i) {
-              if (!column.isNullAt(i)) {
-                Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-                long rawTime = ParquetRowConverter.binaryToSQLTimestamp(v);
-                long adjTime = DateTimeUtils.convertTz(rawTime, convertTz, UTC);
-                column.putLong(i, adjTime);
-              }
-            }
+            throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
           }
         } else {
-          throw new UnsupportedOperationException();
+          throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
         }
         break;
-      case BINARY:
-        // TODO: this is incredibly inefficient as it blows up the dictionary right here. We
-        // need to do this better. We should probably add the dictionary data to the ColumnVector
-        // and reuse it across batches. This should mean adding a ByteArray would just update
-        // the length and offset.
-        for (int i = rowId; i < rowId + num; ++i) {
-          if (!column.isNullAt(i)) {
-            Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-            column.putByteArray(i, v.getBytes());
-          }
-        }
-        break;
-      case FIXED_LEN_BYTE_ARRAY:
-        // DecimalType written in the legacy mode
-        if (DecimalType.is32BitDecimalType(column.dataType())) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-              column.putInt(i, (int) ParquetRowConverter.binaryToUnscaledLong(v));
-            }
-          }
-        } else if (DecimalType.is64BitDecimalType(column.dataType())) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-              column.putLong(i, ParquetRowConverter.binaryToUnscaledLong(v));
-            }
-          }
-        } else if (DecimalType.isByteArrayDecimalType(column.dataType())) {
-          for (int i = rowId; i < rowId + num; ++i) {
-            if (!column.isNullAt(i)) {
-              Binary v = dictionary.decodeToBinary(dictionaryIds.getDictId(i));
-              column.putByteArray(i, v.getBytes());
-            }
-          }
-        } else {
-          throw new UnsupportedOperationException();
-        }
-        break;
-
       default:
         throw new UnsupportedOperationException("Unsupported type: " + descriptor.getType());
     }
   }
-  */
 
   private void readBooleanBatch(int rowId, int num, WritableColumnVector column) {
-    // assert(column.dataType() == DataTypes.BooleanType);
+    assert (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Bool);
     defColumn.readBooleans(num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
   }
 
   private void readIntBatch(int rowId, int num, WritableColumnVector column) {
-    // This is where we implement support for the valid type conversions.
-    // TODO: implement remaining type conversions
     if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Int) {
       ArrowType.Int intType = (ArrowType.Int) column.dataType();
       if (intType.getIsSigned() && intType.getBitWidth() == 32) {
         defColumn.readIntegers(
             num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
       }
-      /*
-      } else if (column.dataType() == DataTypes.ByteType) {
-        defColumn.readBytes(
-          num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-      } else if (column.dataType() == DataTypes.ShortType) {
-        defColumn.readShorts(
-          num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-          */
     } else {
       throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
     }
   }
 
   private void readLongBatch(int rowId, int num, WritableColumnVector column) {
-    // This is where we implement support for the valid type conversions.
-    // TODO: implement remaining type conversions
     if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Int) {
       ArrowType.Int intType = (ArrowType.Int) column.dataType();
       if (intType.getIsSigned() && intType.getBitWidth() == 64) {
-        defColumn.readLongs(
-            num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-      }
-      /*
-      } else if (column.dataType() == DataTypes.ByteType) {
-        defColumn.readBytes(
-          num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-      } else if (column.dataType() == DataTypes.ShortType) {
-        defColumn.readShorts(
-          num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-          */
-    } else {
-      throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-    }
-
-    /*
-    // This is where we implement support for the valid type conversions.
-    if (column.dataType() == DataTypes.LongType ||
-      DecimalType.is64BitDecimalType(column.dataType()) ||
-      originalType == OriginalType.TIMESTAMP_MICROS) {
-      defColumn.readLongs(
-        num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-    } else if (originalType == OriginalType.TIMESTAMP_MILLIS) {
-      for (int i = 0; i < num; i++) {
-        if (defColumn.readInteger() == maxDefLevel) {
-          column.putLong(rowId + i, DateTimeUtils.fromMillis(dataColumn.readLong()));
-        } else {
-          column.putNull(rowId + i);
-        }
-      }
-    } else {
-      throw new UnsupportedOperationException("Unsupported conversion to: " + column.dataType());
-    }
-    */
-  }
-
-  private void readFloatBatch(int rowId, int num, WritableColumnVector column) {
-    throw new UnsupportedOperationException("Unsupported conversion to: " + column.dataType());
-
-    /*
-    // This is where we implement support for the valid type conversions.
-    // TODO: support implicit cast to double?
-    if (column.dataType() == DataTypes.FloatType) {
-      defColumn.readFloats(
-        num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-    } else {
-      throw new UnsupportedOperationException("Unsupported conversion to: " + column.dataType());
-    }
-    */
-  }
-
-  private void readDoubleBatch(int rowId, int num, WritableColumnVector column) {
-    throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-
-    /*
-    // This is where we implement support for the valid type conversions.
-    // TODO: implement remaining type conversions
-    if (column.dataType() == DataTypes.DoubleType) {
-      defColumn.readDoubles(
-        num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
-    } else {
-      throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-    }
-    */
-  }
-
-  private void readBinaryBatch(int rowId, int num, WritableColumnVector column) {
-    throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-
-    /*
-    // This is where we implement support for the valid type conversions.
-    // TODO: implement remaining type conversions
-    VectorizedValuesReader data = (VectorizedValuesReader) dataColumn;
-    if (column.dataType() == DataTypes.StringType || column.dataType() == DataTypes.BinaryType
-      || DecimalType.isByteArrayDecimalType(column.dataType())) {
-      defColumn.readBinarys(num, column, rowId, maxDefLevel, data);
-    } else if (column.dataType() == DataTypes.TimestampType) {
-      if (!shouldConvertTimestamps()) {
-        for (int i = 0; i < num; i++) {
-          if (defColumn.readInteger() == maxDefLevel) {
-            // Read 12 bytes for INT96
-            long rawTime = ParquetRowConverter.binaryToSQLTimestamp(data.readBinary(12));
-            column.putLong(rowId + i, rawTime);
-          } else {
-            column.putNull(rowId + i);
-          }
-        }
+        defColumn.readLongs(num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
       } else {
-        for (int i = 0; i < num; i++) {
-          if (defColumn.readInteger() == maxDefLevel) {
-            // Read 12 bytes for INT96
-            long rawTime = ParquetRowConverter.binaryToSQLTimestamp(data.readBinary(12));
-            long adjTime = DateTimeUtils.convertTz(rawTime, convertTz, UTC);
-            column.putLong(rowId + i, adjTime);
-          } else {
-            column.putNull(rowId + i);
-          }
-        }
+        throw new UnsupportedOperationException(
+            "readLongBatch doesn't support conversion to " + column.dataType());
       }
     } else {
-      throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
+      throw new UnsupportedOperationException(
+          "readLongBatch doesn't support conversion to " + column.dataType());
     }
-    */
+  }
+
+  private void readFloatBatch(final int rowId, final int num, final WritableColumnVector column) {
+    if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.FloatingPoint) {
+      final ArrowType.FloatingPoint floatingPointType = (ArrowType.FloatingPoint) column.dataType();
+      if (floatingPointType.getPrecision() == FloatingPointPrecision.SINGLE) {
+        defColumn.readFloats(num, column, rowId, maxDefLevel, (VectorizedValuesReader) dataColumn);
+      } else {
+        throw new UnsupportedOperationException(
+            "readFloatBatch doesn't support conversion to " + column.dataType());
+      }
+    } else {
+      throw new UnsupportedOperationException(
+          "readFloatBatch doesn't support conversion to " + column.dataType());
+    }
+  }
+
+  private void readDoubleBatch(final int rowId, final int num, final WritableColumnVector column) {
+    if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.FloatingPoint
+        && column.dataType().getTypeID() == ArrowType.ArrowTypeID.FloatingPoint) {
+      final VectorizedValuesReader data = (VectorizedValuesReader) dataColumn;
+      defColumn.readDoubles(num, column, rowId, maxDefLevel, data);
+    } else {
+      throw new UnsupportedOperationException(
+          "readDoubleBatch doesn't support conversion to " + column.dataType());
+    }
+  }
+
+  private void readBinaryBatch(final int rowId, final int num, final WritableColumnVector column) {
+    final VectorizedValuesReader data = (VectorizedValuesReader) dataColumn;
+    if (column.dataType().getTypeID() == ArrowType.ArrowTypeID.Utf8) {
+      defColumn.readBinarys(num, column, rowId, maxDefLevel, data);
+    }
   }
 
   private void readFixedLenByteArrayBatch(
-      int rowId, int num, WritableColumnVector column, int arrayLen) {
+      final int rowId, final int num, final WritableColumnVector column, final int arrayLen) {
     throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-
-    /*
-    VectorizedValuesReader data = (VectorizedValuesReader) dataColumn;
-    // This is where we implement support for the valid type conversions.
-    // TODO: implement remaining type conversions
-    if (DecimalType.is32BitDecimalType(column.dataType())) {
-      for (int i = 0; i < num; i++) {
-        if (defColumn.readInteger() == maxDefLevel) {
-          column.putInt(rowId + i,
-            (int) ParquetRowConverter.binaryToUnscaledLong(data.readBinary(arrayLen)));
-        } else {
-          column.putNull(rowId + i);
-        }
-      }
-    } else if (DecimalType.is64BitDecimalType(column.dataType())) {
-      for (int i = 0; i < num; i++) {
-        if (defColumn.readInteger() == maxDefLevel) {
-          column.putLong(rowId + i,
-            ParquetRowConverter.binaryToUnscaledLong(data.readBinary(arrayLen)));
-        } else {
-          column.putNull(rowId + i);
-        }
-      }
-    } else if (DecimalType.isByteArrayDecimalType(column.dataType())) {
-      for (int i = 0; i < num; i++) {
-        if (defColumn.readInteger() == maxDefLevel) {
-          column.putByteArray(rowId + i, data.readBinary(arrayLen).getBytes());
-        } else {
-          column.putNull(rowId + i);
-        }
-      }
-    } else {
-      throw new UnsupportedOperationException("Unimplemented type: " + column.dataType());
-    }
-    */
   }
 
   private void readPage() {

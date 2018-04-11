@@ -19,13 +19,11 @@
 
 package org.apache.parquet.arrow.reader;
 
-import com.google.common.collect.Lists;
-import org.apache.arrow.flatbuf.Decimal;
+import io.netty.buffer.ArrowBuf;
 import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.*;
 import org.apache.arrow.vector.holders.NullableVarCharHolder;
-import org.apache.arrow.vector.types.pojo.Schema;
-import org.apache.parquet.arrow.schema.SchemaConverter;
+import org.apache.commons.io.Charsets;
 import org.apache.parquet.schema.Type;
 
 import java.math.BigDecimal;
@@ -33,10 +31,9 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
- * A column vector backed by Apache Arrow. Currently calendar interval type and map type are not
- * supported.
+ * A column vector backed by Apache Arrow. The current supported the types are Int, Long, Double,
+ * Binary.
  */
-// TODO: support Binary, DECIMAL, UTP8String types.
 public final class ArrowColumnVector extends WritableColumnVector {
 
   private final ArrowVectorAccessor accessor;
@@ -118,9 +115,7 @@ public final class ArrowColumnVector extends WritableColumnVector {
 
   public ArrowColumnVector(ValueVector vector) {
     // TODO: may be use Arrow Type instead of Parquet type for the ColumnVector.
-    super(
-        10,
-          vector.getField().getType());
+    super(vector.getField().getType());
 
     if (vector instanceof BitVector) {
       accessor = new BooleanAccessor((BitVector) vector);
@@ -255,7 +250,11 @@ public final class ArrowColumnVector extends WritableColumnVector {
       throw new UnsupportedOperationException();
     }
 
-    void putString(int rowId, String value) {
+    void putString(final int rowId, final String value) {
+      throw new UnsupportedOperationException();
+    }
+
+    void putBytes(final int rowId, final byte[] value, final int offset, final int count) {
       throw new UnsupportedOperationException();
     }
   }
@@ -477,15 +476,21 @@ public final class ArrowColumnVector extends WritableColumnVector {
       if (stringResult.isSet == 0) {
         return null;
       } else {
-        // TODO: verify that is the right thing to do.
-        return accessor.getObject(rowId).toString();
+        return stringResult.buffer.toString(
+            stringResult.start, stringResult.end - stringResult.start, Charsets.UTF_8);
       }
     }
 
     @Override
-    final void putString(int rowId, String value) {
-      // TODO: verify that is right thing to do.
-      accessor.set(rowId, value.getBytes());
+    final void putString(int rowId, final String value) {
+      final ArrowBuf buf = accessor.getAllocator().buffer(value.length());
+      buf.setBytes(0, value.getBytes(Charsets.UTF_8));
+      accessor.set(rowId, 0, value.length(), buf);
+    }
+
+    @Override
+    final void putBytes(final int rowId, final byte[] value, final int offset, final int count) {
+      accessor.set(rowId, value, offset, count);
     }
 
     @Override
@@ -758,12 +763,24 @@ public final class ArrowColumnVector extends WritableColumnVector {
 
   @Override
   public void putDoubles(int rowId, int count, double[] src, int srcIndex) {
-    throw new UnsupportedOperationException();
+    for (int i = 0; i < count; ++i) {
+      accessor.putDouble(rowId + i, src[i]);
+    }
   }
 
   @Override
   public void putDoubles(int rowId, int count, byte[] src, int srcIndex) {
-    throw new UnsupportedOperationException();
+    if (!bigEndianPlatform) {
+      int srcOffset = srcIndex + Platform.DOUBLE_ARRAY_OFFSET;
+      for (int i = 0; i < count; ++i, srcOffset += 8) {
+        accessor.putDouble(rowId + i, Platform.getDouble(src, srcOffset));
+      }
+    } else {
+      final ByteBuffer bb = ByteBuffer.wrap(src).order(ByteOrder.LITTLE_ENDIAN);
+      for (int i = 0; i < count; ++i) {
+        accessor.putDouble(rowId + i, bb.getDouble(srcIndex + (8 * i)));
+      }
+    }
   }
 
   @Override
@@ -772,8 +789,13 @@ public final class ArrowColumnVector extends WritableColumnVector {
   }
 
   @Override
-  public int putByteArray(int rowId, byte[] value, int offset, int count) {
-    throw new UnsupportedOperationException();
+  public void putByteArray(int rowId, byte[] value, int offset, int count) {
+    if (bigEndianPlatform) {
+      final ByteBuffer bb = ByteBuffer.wrap(value).order(ByteOrder.LITTLE_ENDIAN);
+      accessor.putBytes(rowId, bb.array(), offset, count);
+    } else {
+      accessor.putBytes(rowId, value, offset, count);
+    }
   }
 
   @Override

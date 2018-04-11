@@ -20,7 +20,7 @@ package org.apache.parquet.arrow.reader;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
 
-// TODO: this class is in a good shape.
+/** Base class provides access interface to the backed Arrow vector. */
 public abstract class ColumnVector implements AutoCloseable {
 
   /** @return the Arrow type of this column vector. */

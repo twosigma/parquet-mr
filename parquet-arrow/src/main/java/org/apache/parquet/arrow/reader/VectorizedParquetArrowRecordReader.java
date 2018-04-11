@@ -38,7 +38,6 @@ import org.apache.parquet.schema.Type;
 public class VectorizedParquetArrowRecordReader extends AbstractParquetArrowRecordReader {
 
   // The capacity of vectorized batch.
-  // TODO: set default to be 4096.
   private int capacity;
 
   /**
@@ -162,7 +161,16 @@ public class VectorizedParquetArrowRecordReader extends AbstractParquetArrowReco
       if (columnReaders[i] == null) {
         continue;
       }
-      columnReaders[i].readBatch(rowsToRead, columnVectors[i]);
+      System.out.println(
+          "nextBatch i: "
+              + i
+              + " rowsToRead "
+              + rowsToRead
+              + " rowsReturned: "
+              + rowsReturned
+              + " capacity "
+              + capacity);
+      columnReaders[i].readBatch(rowsToRead, columnVectors[i], rowsReturned);
     }
     rowsReturned += rowsToRead;
     arrowWriter.setCount(rowsReturned);

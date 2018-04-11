@@ -20,11 +20,8 @@
 package org.apache.parquet.arrow.reader;
 
 import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.types.pojo.Schema;
-
-import java.util.List;
 
 public class ArrowWriter implements AutoCloseable {
 
@@ -59,9 +56,6 @@ public class ArrowWriter implements AutoCloseable {
     root.setRowCount(this.count);
   }
 
-  public int getCount() {
-    return this.count;
-  }
 
   @Override
   public void close() {

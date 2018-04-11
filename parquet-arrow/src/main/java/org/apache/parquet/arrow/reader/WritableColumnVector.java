@@ -33,11 +33,6 @@ import java.nio.ByteOrder;
  * This class adds write APIs to {@link ColumnVector}. It supports all the types and contains put
  * APIs as well as their batched versions. The batched versions are preferable whenever possible.
  *
- * <p>Capacity: The data stored is dense but the arrays are not fixed capacity. It is the
- * responsibility of the caller to call reserve() to ensure there is enough room before adding
- * elements. This means that the put() APIs do not check as in common cases (i.e. flat schemas), the
- * lengths are known up front.
- *
  * <p>A {@link WritableColumnVector} should be considered immutable once originally created. In
  * other words, it is not valid to call put APIs after reads until reset() is called.
  *
@@ -50,16 +45,10 @@ public abstract class WritableColumnVector extends ColumnVector {
 
   /** Resets this column for writing. The currently stored values are no longer accessible. */
   public void reset() {
-    if (isConstant) return;
-
     if (childColumns != null) {
       for (ColumnVector c : childColumns) {
         ((WritableColumnVector) c).reset();
       }
-    }
-    if (numNulls > 0) {
-      putNotNulls(0, capacity);
-      numNulls = 0;
     }
   }
 
@@ -77,41 +66,6 @@ public abstract class WritableColumnVector extends ColumnVector {
       dictionaryIds = null;
     }
     dictionary = null;
-  }
-
-  public void reserve(int requiredCapacity) {
-    if (requiredCapacity > capacity) {
-      int newCapacity = (int) Math.min(MAX_CAPACITY, requiredCapacity * 2L);
-      if (requiredCapacity <= newCapacity) {
-        try {
-          reserveInternal(newCapacity);
-        } catch (OutOfMemoryError outOfMemoryError) {
-          throwUnsupportedException(requiredCapacity, outOfMemoryError);
-        }
-      } else {
-        throwUnsupportedException(requiredCapacity, null);
-      }
-    }
-  }
-
-  private void throwUnsupportedException(int requiredCapacity, Throwable cause) {
-    String message =
-        "Cannot reserve additional contiguous bytes in the vectorized reader "
-            + "(requested = "
-            + requiredCapacity
-            + " bytes). As a workaround, you can disable the "
-            + "vectorized reader, or increase the vectorized reader batch size. For parquet file ";
-    throw new RuntimeException(message, cause);
-  }
-
-  @Override
-  public boolean hasNull() {
-    return numNulls > 0;
-  }
-
-  @Override
-  public int numNulls() {
-    return numNulls;
   }
 
   /**
@@ -156,7 +110,6 @@ public abstract class WritableColumnVector extends ColumnVector {
                   Type.Repetition.OPTIONAL, PrimitiveType.PrimitiveTypeName.INT32, "x"));
     } else {
       dictionaryIds.reset();
-      dictionaryIds.reserve(capacity);
     }
     return dictionaryIds;
   }
@@ -283,10 +236,10 @@ public abstract class WritableColumnVector extends ColumnVector {
   public abstract void putArray(int rowId, int offset, int length);
 
   /** Sets values from [value + offset, value + offset + count) to the values at rowId. */
-  public abstract int putByteArray(int rowId, byte[] value, int offset, int count);
+  public abstract void putByteArray(int rowId, byte[] value, int offset, int count);
 
-  public final int putByteArray(int rowId, byte[] value) {
-    return putByteArray(rowId, value, 0, value.length);
+  public final void putByteArray(int rowId, byte[] value) {
+    putByteArray(rowId, value, 0, value.length);
   }
 
   public WritableColumnVector arrayData() {
@@ -302,27 +255,6 @@ public abstract class WritableColumnVector extends ColumnVector {
     return childColumns[ordinal];
   }
 
-  /** Marks this column as being constant. */
-  public final void setIsConstant() {
-    isConstant = true;
-  }
-
-  /** Maximum number of rows that can be stored in this column. */
-  protected int capacity;
-
-  /** Upper limit for the maximum capacity for this column. */
-  protected int MAX_CAPACITY = Integer.MAX_VALUE - 15;
-
-  /**
-   * Number of nulls in this column. This is an optimization for the reader, to skip NULL checks.
-   */
-  protected int numNulls;
-
-  /**
-   * True if this column's values are fixed. This means the column values never change, even across
-   * resets.
-   */
-  protected boolean isConstant;
 
   /** Default size of each array length value. This grows as necessary. */
   protected static final int DEFAULT_ARRAY_LENGTH = 4;
@@ -333,16 +265,12 @@ public abstract class WritableColumnVector extends ColumnVector {
   /** Reserve a new column. */
   protected abstract WritableColumnVector reserveNewColumn(int capacity, Type type);
 
-  protected boolean isArray() {
-    throw new UnsupportedOperationException();
-  }
 
   /**
    * Sets up the common state and also handles creating the child columns if this is a nested type.
    */
-  protected WritableColumnVector(int capacity, ArrowType type) {
+  protected WritableColumnVector(ArrowType type) {
     super(type);
-    this.capacity = capacity;
 
     // TODO: will handle nested struct later
     this.childColumns = null;

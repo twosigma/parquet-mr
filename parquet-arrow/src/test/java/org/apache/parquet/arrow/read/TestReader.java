@@ -18,14 +18,15 @@
  */
 package org.apache.parquet.arrow.read;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.BigIntVector;
-import org.apache.arrow.vector.FieldVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.*;
 import org.apache.arrow.vector.complex.NullableMapVector;
+import org.apache.arrow.vector.holders.NullableVarCharHolder;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.commons.io.Charsets;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -51,13 +52,13 @@ public class TestReader {
     Configuration config = new Configuration();
 
     FileSystem fs = FileSystem.get(config);
-    Path path = new Path("/Users/wenbozhao/scratch/data3");
+    Path path = new Path("/Users/wenbozhao/scratch/data4");
     List<Footer> footers = Lists.newArrayList();
 
     for (FileStatus s : fs.listStatus(path)) {
       System.out.println(s.getPath() + " " + s.getLen());
 
-      Footer f = null;
+      Footer f;
       try {
         f = new Footer(s.getPath(), ParquetFileReader.readFooter(config, s.getPath()));
       } catch (Exception e) {
@@ -78,7 +79,12 @@ public class TestReader {
             .fromParquet(footers.get(0).getParquetMetadata().getFileMetaData().getSchema())
             .getArrowSchema();
 
-    System.out.println(arrowSchema.toJson());
+    Schema arrowSchema1 = new Schema(arrowSchema.getFields().subList(0, 2));
+
+    System.out.println("arrowSchema:" + arrowSchema.toJson());
+    System.out.println("arrowSchema1:" + arrowSchema1.toJson());
+
+    SchemaMapping schemaMapping1 = new SchemaConverter().fromArrow(arrowSchema1);
     footers
         .get(0)
         .getParquetMetadata()
@@ -105,28 +111,45 @@ public class TestReader {
               }
             });
 
+    System.out.println("Size of footers " + footers.size());
     footers.forEach(
         f -> {
           VectorizedParquetArrowRecordReader reader =
-              new VectorizedParquetArrowRecordReader(null, 10);
+              new VectorizedParquetArrowRecordReader(null, 4096);
           try {
-            reader.initialize(f.getFile().toString(), Lists.asList("_1", new String[]{"_2", "_3"}));
-            reader.initBatch(schemaMapping);
+            reader.initialize(f.getFile().toString(), ImmutableList.of("_1", "_2"));
+            reader.initBatch(schemaMapping1);
             while (reader.nextBatch()) {
-
+              System.out.println(
+                  "----->  has nextBatch() + rowCount: "
+                      + reader.getArrowWriter().getRoot().getRowCount());
             }
 
-            List<FieldVector> vectors = reader.getArrowWriter().getRoot().getFieldVectors();
-            vectors.forEach(v -> {
-              ArrowColumnVector v1 = new ArrowColumnVector(v);
-              for (int i = 0; i < reader.getArrowWriter().getRoot().getRowCount(); ++i) {
+            for (int i = 0; i < reader.getArrowWriter().getRoot().getRowCount(); ++i) {
+              List<FieldVector> vectors = reader.getArrowWriter().getRoot().getFieldVectors();
+              for (FieldVector v : vectors) {
+                ArrowColumnVector v1 = new ArrowColumnVector(v);
                 if (v instanceof BigIntVector) {
-                  System.out.println("Get " + v1.getLong(i));
+                  System.out.print(" Long: " + v1.getLong(i));
+                } else if (v instanceof Float4Vector) {
+                  System.out.print(" Float:" + v1.getFloat(i));
+                } else if (v instanceof IntVector) {
+                  System.out.print(" Int: " + v1.getInt(i));
+                } else if (v instanceof Float8Vector) {
+                  System.out.print(" Double: " + v1.getDouble(i));
+                } else if (v instanceof VarCharVector) {
+                  NullableVarCharHolder holder = new NullableVarCharHolder();
+                  ((VarCharVector) v).get(i, holder);
+                  System.out.print(
+                      " String: "
+                          + holder.buffer.toString(
+                              holder.start, holder.end - holder.start, Charsets.UTF_8));
                 } else {
-                  System.out.println("Get " + v1.getInt(i));
+                  System.err.println("unknown " + v.getClass());
                 }
               }
-            });
+              System.out.println();
+            }
           } catch (Exception e) {
             e.printStackTrace();
           }

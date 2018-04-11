@@ -26,7 +26,6 @@ import java.nio.ByteOrder;
 import org.apache.parquet.column.values.ValuesReader;
 import org.apache.parquet.io.api.Binary;
 
-// XXX: GOOD
 /** An implementation of the Parquet PLAIN decoder that supports the vectorized interface. */
 public class VectorizedPlainValuesReader extends ValuesReader implements VectorizedValuesReader {
   private byte[] buffer;

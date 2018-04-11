@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-
 import static org.apache.parquet.filter2.compat.RowGroupFilter.filterRowGroups;
 import static org.apache.parquet.format.converter.ParquetMetadataConverter.NO_FILTER;
 import static org.apache.parquet.format.converter.ParquetMetadataConverter.range;
@@ -61,38 +60,27 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.Types;
 
-/**
- * Base class for custom RecordReaders for Parquet.
- */
-// XXX Good
+/** Base class for custom RecordReaders for Parquet. */
 public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void, Object> {
-  /**
-   * The actual parquet file will read.
-   */
+  /** The actual parquet file will read. */
   protected Path file;
 
-  /**
-   * The parquet schema of `file`.
-   */
+  /** The parquet schema of `file`. */
   protected MessageType fileSchema;
 
-  /**
-   * The requested schema which is a subset of `fileSchema`.
-   */
+  /** The requested schema which is a subset of `fileSchema`. */
   protected MessageType requestedSchema;
 
-  /**
-   * The converted arrow schema from `requestedSchema`.
-   */
+  /** The converted arrow schema from `requestedSchema`. */
   protected Schema requestedArrowSchema;
 
   /**
-   * The total number of rows this reader will eventually read, i.e. the sum of the
-   * rows of all the row groups in the file.
+   * The total number of rows this `reader` will eventually read, i.e. the sum of the rows of all
+   * the row groups in the file.
    */
-  // TODO: may change to int?
   protected long totalRowCount;
 
+  /** The actual Parquet file reader. */
   protected ParquetFileReader reader;
 
   @Override
@@ -126,7 +114,7 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
           blocks.add(block);
         }
       }
-      // verify we found them all
+      // Verify we found them all
       if (blocks.size() != rowGroupOffsets.length) {
         long[] foundRowGroupOffsets = new long[footer.getBlocks().size()];
         for (int i = 0; i < foundRowGroupOffsets.length; i++) {
@@ -135,10 +123,16 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
         // This should never happen but we provide a good error message in case there's a bug.
         throw new IllegalStateException(
             "All the offsets listed in the split should be found in the file."
-                + " expected: " + Arrays.toString(rowGroupOffsets)
-                + " found: " + blocks
-                + " out of: " + Arrays.toString(foundRowGroupOffsets)
-                + " in range " + split.getStart() + ", " + split.getEnd());
+                + " expected: "
+                + Arrays.toString(rowGroupOffsets)
+                + " found: "
+                + blocks
+                + " out of: "
+                + Arrays.toString(foundRowGroupOffsets)
+                + " in range "
+                + split.getStart()
+                + ", "
+                + split.getEnd());
       }
     }
     this.fileSchema = footer.getFileMetaData().getSchema();
@@ -146,40 +140,43 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
 
     // TODO: use a better ReadSupport other than GroupReadSupport.
     ReadSupport<Group> readSupport = new GroupReadSupport();
-    // Set the configuration such tht ReadSupport.Init() could get the subset of
+    // Set the configuration such that ReadSupport.Init() could get the subset of
     // fileSchema to read.
     // TODO: for simplicity, use fileSchema to read all columns.
     // Do we really need a ReadSupport here?
     configuration.set(ReadSupport.PARQUET_READ_SCHEMA, fileSchema.toString());
 
-    ReadSupport.ReadContext readContext = readSupport.init(new InitContext(
-        taskAttemptContext.getConfiguration(), toSetMultiMap(fileMetadata), fileSchema));
+    ReadSupport.ReadContext readContext =
+        readSupport.init(
+            new InitContext(
+                taskAttemptContext.getConfiguration(), toSetMultiMap(fileMetadata), fileSchema));
     this.requestedSchema = readContext.getRequestedSchema();
 
-    this.reader = new ParquetFileReader(
-        configuration, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
+    this.reader =
+        new ParquetFileReader(
+            configuration, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
     for (BlockMetaData block : blocks) {
       this.totalRowCount += block.getRowCount();
     }
   }
 
   /**
-   * Initializes the reader to read the file at `path` with `columns` projected. If columns is
-   * null, all the columns are projected.
-   * <p>
-   * This is exposed for testing to be able to create this reader without the rest of the Hadoop
+   * Initializes the reader to read the file at `path` with `columns` projected. If columns is null,
+   * all the columns are projected.
+   *
+   * <p>This is exposed for testing to be able to create this reader without the rest of the Hadoop
    * split machinery. It is not intended for general use and those not support all the
    * configurations.
    */
   protected void initialize(final String path, final List<String> columns) throws IOException {
-    Configuration config = new Configuration();
+    final Configuration config = new Configuration();
 
-    this.file = new Path(path);
-    long length = this.file.getFileSystem(config).getFileStatus(this.file).getLen();
+    file = new Path(path);
+    final long length = file.getFileSystem(config).getFileStatus(file).getLen();
     ParquetMetadata footer = readFooter(config, file, range(0, length));
 
-    List<BlockMetaData> blocks = footer.getBlocks();
-    this.fileSchema = footer.getFileMetaData().getSchema();
+    final List<BlockMetaData> blocks = footer.getBlocks();
+    fileSchema = footer.getFileMetaData().getSchema();
 
     if (columns == null) {
       this.requestedSchema = fileSchema;
@@ -189,19 +186,23 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
       final Types.MessageTypeBuilder builder = Types.buildMessage();
       for (final String c : columns) {
         if (!fileSchema.containsField(c)) {
-          throw new IOException("Can only project existing columns. Unknown column: " + c +
-              " File schema:\n" + fileSchema);
+          throw new IOException(
+              "Can only project existing columns. Unknown column: "
+                  + c
+                  + " but file schema:\n"
+                  + fileSchema);
         }
         builder.addFields(fileSchema.getType(c));
       }
-      this.requestedSchema = builder.named(SchemaConverter.ARROW_PARQUET_SCHEMA_NAME);
+      requestedSchema = builder.named(SchemaConverter.ARROW_PARQUET_SCHEMA_NAME);
     }
 
-    this.requestedArrowSchema = new SchemaConverter().fromParquet(requestedSchema).getArrowSchema();
-    this.reader = new ParquetFileReader(
-        config, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
+    requestedArrowSchema = new SchemaConverter().fromParquet(requestedSchema).getArrowSchema();
+    reader =
+        new ParquetFileReader(
+            config, footer.getFileMetaData(), file, blocks, requestedSchema.getColumns());
     for (final BlockMetaData block : blocks) {
-      this.totalRowCount += block.getRowCount();
+      totalRowCount += block.getRowCount();
     }
   }
 
@@ -218,17 +219,15 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
     }
   }
 
-  /**
-   * Utility classes to abstract over different way to read ints with different encodings.
-   */
+  /** Utility classes to abstract over different way to read ints with different encodings. */
   abstract static class IntIterator {
     abstract int nextInt() throws IOException;
   }
 
-  protected static final class ValuesReaderIntIterator extends IntIterator {
+  static final class ValuesReaderIntIterator extends IntIterator {
     ValuesReader delegate;
 
-    public ValuesReaderIntIterator(ValuesReader delegate) {
+    ValuesReaderIntIterator(ValuesReader delegate) {
       this.delegate = delegate;
     }
 
@@ -241,7 +240,7 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
   protected static final class RLEIntIterator extends IntIterator {
     RunLengthBitPackingHybridDecoder delegate;
 
-    public RLEIntIterator(RunLengthBitPackingHybridDecoder delegate) {
+    RLEIntIterator(RunLengthBitPackingHybridDecoder delegate) {
       this.delegate = delegate;
     }
 
@@ -259,11 +258,12 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
   }
 
   /**
-   * Creates a reader for definition and repetition levels, returning an optimized one if
-   * the levels are not needed.
+   * Creates a reader for definition and repetition levels, returning an optimized one if the levels
+   * are not needed.
    */
   protected static IntIterator createRLEIterator(
-      int maxLevel, BytesInput bytes, ColumnDescriptor descriptor) throws IOException {
+      final int maxLevel, final BytesInput bytes, final ColumnDescriptor descriptor)
+      throws IOException {
     try {
       if (maxLevel == 0) return new NullIntIterator();
       return new RLEIntIterator(
@@ -285,4 +285,3 @@ public abstract class AbstractParquetArrowRecordReader extends RecordReader<Void
     return Collections.unmodifiableMap(setMultiMap);
   }
 }
-
