@@ -67,8 +67,8 @@
   </pluginRepositories>
 
   <properties>
-    <targetJavaVersion>1.6</targetJavaVersion>
-    <maven.compiler.source>1.6</maven.compiler.source>
+    <targetJavaVersion>1.8</targetJavaVersion>
+    <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>${targetJavaVersion}</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <github.global.server>github</github.global.server>
@@ -101,9 +101,10 @@
     <module>parquet-benchmarks</module>
     <module>parquet-cascading</module>
     <module>parquet-column</module>
+    <module>parquet-arrow</module>
     <module>parquet-common</module>
     <module>parquet-encoding</module>
-    <module>parquet-generator</module>
+    <!-- <module>parquet-generator</module> -->
     <module>parquet-hadoop</module>
     <module>parquet-jackson</module>
     <module>parquet-pig</module>

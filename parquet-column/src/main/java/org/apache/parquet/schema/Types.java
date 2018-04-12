@@ -1071,10 +1071,11 @@ public class Types {
       super(returnType);
     }
 
-    public void setElementType(Type elementType) {
+    public THIS setElementType(Type elementType) {
       Preconditions.checkState(this.elementType == null,
           "Only one element can be built with a ListBuilder");
       this.elementType = elementType;
+      return self();
     }
 
     public static class ElementBuilder<LP, L extends BaseListBuilder<LP, L>>
